@@ -54,6 +54,14 @@ uint32_t ff_mov_get_channel_layout_tag(enum AVCodecID codec_id,
                                        uint32_t *bitmap);
 
 /**
+ * Get the channel label tag for the specified channel.
+ *
+ * @param[in]  channel         channel identifier
+ * @return                     channel label tag
+ */
+uint32_t ff_mov_get_channel_label_tag(uint64_t channel);
+
+/**
  * Read 'chan' tag from the input stream.
  *
  * @param s     AVFormatContext

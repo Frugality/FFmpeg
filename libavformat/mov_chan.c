@@ -478,6 +478,26 @@ uint64_t ff_mov_get_channel_layout(uint32_t tag, uint32_t bitmap)
     return layout_map[i].layout;
 }
 
+uint32_t ff_mov_get_channel_label_tag(uint64_t channel)
+{
+    int i;
+    
+    if(channel == 0)
+        return 0;
+    
+    for(i=0; i<=17; ++i)
+        if((1U << i) & channel)
+            return i+1;
+    
+    if(channel == AV_CH_STEREO_LEFT)
+        return 38; // LeftTotal
+    
+    if(channel == AV_CH_STEREO_RIGHT)
+        return 39; // RightTotal
+
+    return 0;
+}
+
 static uint32_t mov_get_channel_label(uint32_t label)
 {
     if (label == 0)
