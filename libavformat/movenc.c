@@ -80,6 +80,7 @@ static const AVOption options[] = {
     { "skip_trailer", "Skip writing the mfra/tfra/mfro trailer for fragmented files", 0, AV_OPT_TYPE_CONST, {.i64 = FF_MOV_FLAG_SKIP_TRAILER}, INT_MIN, INT_MAX, AV_OPT_FLAG_ENCODING_PARAM, "movflags" },
     { "negative_cts_offsets", "Use negative CTS offsets (reducing the need for edit lists)", 0, AV_OPT_TYPE_CONST, {.i64 = FF_MOV_FLAG_NEGATIVE_CTS_OFFSETS}, INT_MIN, INT_MAX, AV_OPT_FLAG_ENCODING_PARAM, "movflags" },
     { "write_track_title", "Include track title metadata, even for MOV containers", 0, AV_OPT_TYPE_CONST, {.i64 = FF_MOV_FLAG_TRACK_TITLE}, INT_MIN, INT_MAX, AV_OPT_FLAG_ENCODING_PARAM, "movflags" },
+    { "use_channel_labels", "Always write channel labels directly instead of using channel layouts", 0, AV_OPT_TYPE_CONST, {.i64 = FF_MOV_FLAG_ONLY_CHANNEL_LABELS}, INT_MIN, INT_MAX, AV_OPT_FLAG_ENCODING_PARAM, "movflags" },
     FF_RTP_FLAG_OPTS(MOVMuxContext, rtp_flags),
     { "skip_iods", "Skip writing iods atom.", offsetof(MOVMuxContext, iods_skip), AV_OPT_TYPE_BOOL, {.i64 = 1}, 0, 1, AV_OPT_FLAG_ENCODING_PARAM},
     { "iods_audio_profile", "iods audio profile atom.", offsetof(MOVMuxContext, iods_audio_profile), AV_OPT_TYPE_INT, {.i64 = -1}, -1, 255, AV_OPT_FLAG_ENCODING_PARAM},
@@ -755,8 +756,6 @@ static void mov_write_channel_layout_label_tags(AVFormatContext *s, AVIOContext 
         channel = av_channel_layout_extract_channel(channel_layout, i);
         channel_label_tag = ff_mov_get_channel_label_tag(channel);
         
-        av_log(s, AV_LOG_WARNING, "label[%d] = %d\n", i, channel_label_tag);
-        
         avio_wb32(pb, channel_label_tag);  // mChannelLabel
         avio_wb32(pb, 0);                  // mChannelFlags
         avio_wb32(pb, 0);                  // mCoordinates[0]
@@ -765,7 +764,7 @@ static void mov_write_channel_layout_label_tags(AVFormatContext *s, AVIOContext 
     }
 }
 
-static int mov_write_chan_tag(AVFormatContext *s, AVIOContext *pb, MOVTrack *track)
+static int mov_write_chan_tag(AVFormatContext *s, AVIOContext *pb, MOVMuxContext *mov, MOVTrack *track)
 {
     uint32_t layout_tag, bitmap, num_channel_desc;
     int64_t pos = avio_tell(pb);
@@ -777,7 +776,15 @@ static int mov_write_chan_tag(AVFormatContext *s, AVIOContext *pb, MOVTrack *tra
     if (track->multichannel_as_mono)
         return 0;
 
-    num_channel_desc = layout_tag == 0 ? av_get_channel_layout_nb_channels(track->par->channel_layout) : 0;
+    if(mov->flags & FF_MOV_FLAG_ONLY_CHANNEL_LABELS) {
+        layout_tag = 0;
+        bitmap = 0;
+        num_channel_desc = av_get_channel_layout_nb_channels(track->par->channel_layout);
+    } else if(layout_tag == 0) {
+        num_channel_desc = av_get_channel_layout_nb_channels(track->par->channel_layout);
+    } else {
+        num_channel_desc = 0;
+    }
 
     avio_wb32(pb, 0);           // Size
     ffio_wfourcc(pb, "chan");   // Type
@@ -787,7 +794,7 @@ static int mov_write_chan_tag(AVFormatContext *s, AVIOContext *pb, MOVTrack *tra
     avio_wb32(pb, bitmap);      // mChannelBitmap
     avio_wb32(pb, num_channel_desc); // mNumberChannelDescriptions
     
-    if(!layout_tag) {
+    if(num_channel_desc) {
         mov_write_channel_layout_label_tags(s, pb, track->par->channel_layout);
     }
 
@@ -1141,7 +1148,7 @@ static int mov_write_audio_tag(AVFormatContext *s, AVIOContext *pb, MOVMuxContex
         mov_write_glbl_tag(pb, track);
 
     if (track->mode == MODE_MOV && track->par->codec_type == AVMEDIA_TYPE_AUDIO)
-        mov_write_chan_tag(s, pb, track);
+        mov_write_chan_tag(s, pb, mov, track);
 
     if (mov->encryption_scheme != MOV_ENC_NONE) {
         ff_mov_cenc_write_sinf_tag(track, pb, mov->encryption_kid);
