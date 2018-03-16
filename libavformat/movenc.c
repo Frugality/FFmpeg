@@ -742,22 +742,42 @@ static int mov_write_dops_tag(AVIOContext *pb, MOVTrack *track)
     return update_size(pb, pos);
 }
 
+static void mov_write_channel_layout_label_tags(AVFormatContext *s, AVIOContext *pb, uint64_t channel_layout)
+{
+    int i, channels;
+    
+    channels = av_get_channel_layout_nb_channels(channel_layout);
+    
+    for(i=0; i<channels; ++i)
+    {
+        int32_t channel, channel_label_tag;
+        
+        channel = av_channel_layout_extract_channel(channel_layout, i);
+        channel_label_tag = ff_mov_get_channel_label_tag(channel);
+        
+        av_log(s, AV_LOG_WARNING, "label[%d] = %d\n", i, channel_label_tag);
+        
+        avio_wb32(pb, channel_label_tag);  // mChannelLabel
+        avio_wb32(pb, 0);                  // mChannelFlags
+        avio_wb32(pb, 0);                  // mCoordinates[0]
+        avio_wb32(pb, 0);                  // mCoordinates[1]
+        avio_wb32(pb, 0);                  // mCoordinates[2]
+    }
+}
+
 static int mov_write_chan_tag(AVFormatContext *s, AVIOContext *pb, MOVTrack *track)
 {
-    uint32_t layout_tag, bitmap;
+    uint32_t layout_tag, bitmap, num_channel_desc;
     int64_t pos = avio_tell(pb);
 
     layout_tag = ff_mov_get_channel_layout_tag(track->par->codec_id,
                                                track->par->channel_layout,
                                                &bitmap);
-    if (!layout_tag) {
-        av_log(s, AV_LOG_WARNING, "not writing 'chan' tag due to "
-               "lack of channel information\n");
-        return 0;
-    }
 
     if (track->multichannel_as_mono)
         return 0;
+
+    num_channel_desc = layout_tag == 0 ? av_get_channel_layout_nb_channels(track->par->channel_layout) : 0;
 
     avio_wb32(pb, 0);           // Size
     ffio_wfourcc(pb, "chan");   // Type
@@ -765,7 +785,11 @@ static int mov_write_chan_tag(AVFormatContext *s, AVIOContext *pb, MOVTrack *tra
     avio_wb24(pb, 0);           // Flags
     avio_wb32(pb, layout_tag);  // mChannelLayoutTag
     avio_wb32(pb, bitmap);      // mChannelBitmap
-    avio_wb32(pb, 0);           // mNumberChannelDescriptions
+    avio_wb32(pb, num_channel_desc); // mNumberChannelDescriptions
+    
+    if(!layout_tag) {
+        mov_write_channel_layout_label_tags(s, pb, track->par->channel_layout);
+    }
 
     return update_size(pb, pos);
 }

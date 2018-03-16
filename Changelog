@@ -48,6 +48,7 @@ version <next>:
 - drmeter audio filter
 - hapqa_extract bitstream filter
 - movenc option to write track title metadata
+- mov: write channel labels if channel layout is not found
 
 version 3.4:
 - deflicker video filter
